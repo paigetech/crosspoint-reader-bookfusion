@@ -66,15 +66,12 @@ pushes to `develop`; firmware for a PR is attached to its CI run as artifacts.
 To publish an over-the-air update:
 
 1. Bump `version` in `platformio.ini` (e.g. `1.6.5-bf1` to `1.6.5-bf2`) and merge it into `develop`.
-2. Tag that commit and push the tag:
-   ```
-   git tag 1.6.5-bf2 origin/develop
-   git push origin 1.6.5-bf2
-   ```
-3. `.github/workflows/fork-release.yml` builds the X3/X4 and X4 Pro images and
-   publishes release `1.6.5-bf2` with `crosspoint-1.6.5-bf2-x3-x4.bin` and
-   `crosspoint-1.6.5-bf2-x4pro.bin`. It refuses to build if the tag and
-   `platformio.ini` disagree.
+2. On GitHub: **Releases → Draft a new release**. Create tag `1.6.5-bf2` (exactly the
+   `platformio.ini` version, no `v`) targeting `develop`, leave *pre-release* unticked,
+   and **Publish release**.
+3. Upstream's `.github/workflows/release.yml` builds every device and attaches
+   `crosspoint-1.6.5-bf2-<device>.bin` (`x4pro`, `x3-x4`, …) to the release. It fails
+   if the tag and `platformio.ini` disagree. Wait for the "Compile Release" run to finish.
 4. On the reader: Settings → Check for updates.
 
 When rebasing onto a new upstream release (say 1.7.0), restart the counter at `1.7.0-bf1`.
