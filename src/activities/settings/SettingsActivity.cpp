@@ -14,6 +14,7 @@
 #include <cstring>
 
 #include "AboutActivity.h"
+#include "BookFusionSettingsActivity.h"
 #include "ButtonRemapActivity.h"
 #include "ClearCacheActivity.h"
 #include "ClockSettingsActivity.h"
@@ -102,6 +103,7 @@ void SettingsActivity::rebuildSettingsLists() {
     systemSettings.push_back(SettingInfo::Action(StrId::STR_CLOCK, SettingAction::ClockSettings));
   }
   systemSettings.push_back(SettingInfo::Action(StrId::STR_KOREADER_SYNC, SettingAction::KOReaderSync));
+  systemSettings.push_back(SettingInfo::Action(StrId::STR_BF_SYNC, SettingAction::BookFusionSync));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_OPDS_SERVERS, SettingAction::OPDSBrowser));
   systemSettings.push_back(SettingInfo::Action(StrId::STR_CLEAR_READING_CACHE, SettingAction::ClearCache));
   // OTA fetches this board's own release asset (see OtaUpdater); boards whose
@@ -368,6 +370,9 @@ void SettingsActivity::toggleCurrentSetting() {
         break;
       case SettingAction::KOReaderSync:
         startActivityForResult(std::make_unique<KOReaderSettingsActivity>(renderer, mappedInput), resultHandler);
+        break;
+      case SettingAction::BookFusionSync:
+        startActivityForResult(std::make_unique<BookFusionSettingsActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::OPDSBrowser:
         startActivityForResult(std::make_unique<OpdsServerListActivity>(renderer, mappedInput), resultHandler);
