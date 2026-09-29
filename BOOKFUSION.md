@@ -53,5 +53,28 @@ Hooks into upstream files are kept to a few lines each:
   through to KOReader sync as before.
 - **Updates.** *Check for updates* looks at this fork's GitHub releases
   (`paigetech/crosspoint-reader-bookfusion`), not upstream's, so it can never replace
-  this firmware with one that lacks BookFusion. It finds an update only when a release
-  carries an asset named `crosspoint-<tag>-x4pro.bin` (or `-x3-x4.bin` for the C3 image).
+  this firmware with one that lacks BookFusion. Fork versions carry a `-bf<N>` suffix
+  (e.g. `1.6.5-bf2`); the updater compares that build number after the upstream
+  version, so `1.6.5-bf2` is offered over `1.6.5-bf1`, and any `-bf` release over a
+  plain `1.6.5` or local dev build.
+
+## Releasing an update
+
+CI (`.github/workflows/ci.yml`) builds every device on each pull request and on
+pushes to `develop`; firmware for a PR is attached to its CI run as artifacts.
+
+To publish an over-the-air update:
+
+1. Bump `version` in `platformio.ini` (e.g. `1.6.5-bf1` to `1.6.5-bf2`) and merge it into `develop`.
+2. Tag that commit and push the tag:
+   ```
+   git tag 1.6.5-bf2 origin/develop
+   git push origin 1.6.5-bf2
+   ```
+3. `.github/workflows/fork-release.yml` builds the X3/X4 and X4 Pro images and
+   publishes release `1.6.5-bf2` with `crosspoint-1.6.5-bf2-x3-x4.bin` and
+   `crosspoint-1.6.5-bf2-x4pro.bin`. It refuses to build if the tag and
+   `platformio.ini` disagree.
+4. On the reader: Settings → Check for updates.
+
+When rebasing onto a new upstream release (say 1.7.0), restart the counter at `1.7.0-bf1`.

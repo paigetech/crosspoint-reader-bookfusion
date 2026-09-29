@@ -12,6 +12,7 @@
 // clang-format on
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 
@@ -86,6 +87,14 @@ OtaUpdater::OtaUpdaterError OtaUpdater::checkForUpdate() {
   return OK;
 }
 
+namespace {
+// N from a "-bf<N>" version suffix, or 0 when there is none.
+int forkBuildNumber(const char* version) {
+  const char* suffix = strstr(version, "-bf");
+  return suffix ? atoi(suffix + 3) : 0;
+}
+}  // namespace
+
 bool OtaUpdater::isUpdateNewer() const {
   if (!updateAvailable || latestVersion.empty() || latestVersion == CROSSPOINT_VERSION) {
     return false;
@@ -118,6 +127,13 @@ bool OtaUpdater::isUpdateNewer() const {
    * Check patch versions.
    */
   if (latestPatch != currentPatch) return latestPatch > currentPatch;
+
+  // BookFusion fork: releases are tagged <upstream>-bf<N> (e.g. 1.6.5-bf2) so
+  // fork builds of the same upstream version still order. A build without the
+  // suffix (plain upstream or a local dev build) counts as bf0.
+  const int latestFork = forkBuildNumber(latestVersion.c_str());
+  const int currentFork = forkBuildNumber(currentVersion);
+  if (latestFork != currentFork) return latestFork > currentFork;
 
   // If we reach here, it means all segments are equal.
   // One final check, if we're on an RC build (contains "-rc"), we should consider the latest version as newer even if
