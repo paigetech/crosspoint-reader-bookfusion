@@ -1,7 +1,7 @@
 # BookFusion Sync (fork notes)
 
 This branch is CrossPoint Reader with BookFusion account linking, reading-progress
-sync and (later) library browsing added. The feature is a port of
+sync, and library browsing/download added. The feature is a port of
 [vbbot's BookFusion fork](https://github.com/vbbot/crosspoint-reader) (`v1.5.0-bookfusion`)
 onto upstream CrossPoint 1.6.5, which is the first line with Xteink X4 Pro support.
 
@@ -23,7 +23,7 @@ flash the official x4pro firmware from the same page.
 Almost everything is in fork-only files, to keep upstream rebases cheap:
 
 - `lib/BookFusionSync/`: API client, token store, per-book id sidecars
-- `src/activities/settings/BookFusion*`: Settings → BookFusion Sync, account linking
+- `src/activities/settings/BookFusion*`: Settings → BookFusion Sync (link/unlink), library browser and download
 - `src/activities/reader/BookFusionSyncActivity.*`: in-reader progress sync
 
 Hooks into upstream files are kept to a few lines each:
@@ -32,6 +32,8 @@ Hooks into upstream files are kept to a few lines each:
 - `src/main.cpp`: load the token at boot
 - `src/activities/reader/EpubReaderActivity.cpp`: route *Sync progress* to BookFusion for BookFusion books
 - `lib/I18n/translations/english.yaml`: `STR_BF_*` strings, appended at the end
+- `src/network/HttpDownloader.cpp`: report progress without a Content-Length (byte counter, cancel)
+- `src/network/OtaUpdater.cpp`: update check points at this fork
 
 ## Things to know
 
