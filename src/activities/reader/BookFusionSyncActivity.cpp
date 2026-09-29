@@ -37,7 +37,7 @@ uint32_t BookFusionSyncActivity::syncableBookId(const std::string& epubPath) {
 
 BookFusionSyncActivity::BookFusionSyncActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                                const std::string& epubPath, const uint32_t bookId,
-                                               const CrossPointPosition localPosition, const float localPercentage,
+                                               const CrossPointPosition& localPosition, const float localPercentage,
                                                const int spineCount, std::string localChapterName)
     : Activity("BookFusionSync", renderer, mappedInput),
       UiAppHost(renderer),
