@@ -1,0 +1,113 @@
+name: Fork Release
+
+# BookFusion fork releases. Pushing a tag like 1.6.5-bf2 builds the X3/X4 and
+# X4 Pro images and publishes a GitHub release carrying them, named the way
+# OtaUpdater looks for them (crosspoint-<tag>-<device>.bin), so readers pick
+# the release up from Settings > Check for updates.
+#
+#   1. Bump `version` in platformio.ini (e.g. 1.6.5-bf2) and merge it.
+#   2. git tag 1.6.5-bf2 <commit> && git push origin 1.6.5-bf2
+#
+# Upstream's release.yml (release: published) is left untouched: releases
+# created here with GITHUB_TOKEN do not trigger other workflows.
+
+on:
+  push:
+    tags:
+      - '*-bf*'
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - env: gh_release
+            device: x3-x4
+          - env: x4pro-gh_release
+            device: x4pro
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - name: Validate tag matches platformio.ini version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          configured="$(sed -n 's/^version = //p' platformio.ini | head -n1)"
+          if [ "$tag" != "$configured" ]; then
+            echo "Tag $tag does not match platformio.ini version $configured" >&2
+            exit 1
+          fi
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+          enable-cache: false
+
+      - name: Install PlatformIO Core
+        run: |
+          uv pip install --system -U https://github.com/pioarduino/platformio-core/archive/refs/tags/v6.1.19.zip
+          uv pip install --system -U "littlefs-python>=0.16.0" "fatfs-ng>=0.1.14" "pyyaml>=6.0.2" \
+            "rich-click>=1.8.6" "zopfli>=0.2.2" "intelhex>=2.3.0" "rich>=14.0.0" "urllib3<2" \
+            "cryptography>=45.0.3" "certifi>=2025.8.3" "ecdsa>=0.19.1" "bitstring>=4.3.1" \
+            "reedsolo>=1.5.3,<1.8" "esp-idf-size>=2.0.0" "esp-coredump>=1.14.0"
+
+      - name: Pin pioarduino core inside the platform penv
+        run: |
+          set -euo pipefail
+          # Envs with custom_sdkconfig run a nested `pio run` from
+          # ~/.platformio/penv; keep it on the same core as the outer one.
+          pio pkg install -e "${{ matrix.env }}"
+          uv pip install --python ~/.platformio/penv/bin/python "pioarduino==6.1.19"
+
+      - name: Build
+        run: pio run -e "${{ matrix.env }}" -j1
+
+      - name: Stage firmware asset
+        id: asset
+        run: |
+          asset="crosspoint-${GITHUB_REF_NAME#v}-${{ matrix.device }}.bin"
+          cp ".pio/build/${{ matrix.env }}/firmware.bin" "$asset"
+          echo "name=$asset" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: ${{ steps.asset.outputs.name }}
+          path: ${{ steps.asset.outputs.name }}
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: crosspoint-*.bin
+          merge-multiple: true
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          test -f "dist/crosspoint-${version}-x3-x4.bin"
+          test -f "dist/crosspoint-${version}-x4pro.bin"
+          gh release create "$GITHUB_REF_NAME" dist/crosspoint-*.bin \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "CrossPoint ${version} (BookFusion)" \
+            --notes "CrossPoint with BookFusion sync. Install from the reader with Settings > Check for updates, or flash crosspoint-${version}-x4pro.bin (X4 Pro) / crosspoint-${version}-x3-x4.bin (X3/X4). See BOOKFUSION.md."
