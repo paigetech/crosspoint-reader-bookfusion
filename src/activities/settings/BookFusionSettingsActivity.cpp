@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "BookFusionAuthActivity.h"
+#include "BookFusionLibraryActivity.h"
 #include "BookFusionSyncClient.h"
 #include "BookFusionTokenStore.h"
 #include "MappedInputManager.h"
@@ -18,8 +19,10 @@ namespace fui = freeink::ui;
 namespace {
 constexpr int LINK_INDEX = 0;
 constexpr int UNLINK_INDEX = 1;
+constexpr int BROWSE_INDEX = 2;
 
-const StrId menuNames[BookFusionSettingsActivity::MENU_ITEMS] = {StrId::STR_BF_LINK_ACCOUNT, StrId::STR_BF_UNLINK};
+const StrId menuNames[BookFusionSettingsActivity::MENU_ITEMS] = {StrId::STR_BF_LINK_ACCOUNT, StrId::STR_BF_UNLINK,
+                                                                 StrId::STR_BF_BROWSE_LIBRARY};
 }  // namespace
 
 BookFusionSettingsActivity::BookFusionSettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
@@ -57,6 +60,11 @@ void BookFusionSettingsActivity::activateIndex(const int index) {
       BF_TOKEN_STORE.clearToken();
     }
     requestUpdate();
+  } else if (index == BROWSE_INDEX) {
+    if (BF_TOKEN_STORE.hasToken()) {
+      startActivityForResult(std::make_unique<BookFusionLibraryActivity>(renderer, mappedInput),
+                             [this](const ActivityResult&) { requestUpdate(); });
+    }
   }
 }
 
@@ -69,6 +77,7 @@ void BookFusionSettingsActivity::buildScreen(UiScreen& screen) {
   const bool linked = BF_TOKEN_STORE.hasToken();
   rowValues_[LINK_INDEX] = linked ? tr(STR_BF_LINKED) : tr(STR_BF_NOT_LINKED);
   rowValues_[UNLINK_INDEX] = "";
+  rowValues_[BROWSE_INDEX] = linked ? "" : tr(STR_BF_NOT_LINKED);
   for (int i = 0; i < MENU_ITEMS; i++) {
     rowItems_[i].value = rowValues_[i].empty() ? nullptr : rowValues_[i].c_str();
   }
