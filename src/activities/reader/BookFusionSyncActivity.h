@@ -31,7 +31,7 @@ class BookFusionSyncActivity final : public Activity, private UiAppHost {
   static uint32_t syncableBookId(const std::string& epubPath);
 
   explicit BookFusionSyncActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& epubPath,
-                                  uint32_t bookId, CrossPointPosition localPosition, float localPercentage,
+                                  uint32_t bookId, const CrossPointPosition& localPosition, float localPercentage,
                                   int spineCount, std::string localChapterName);
 
   void onEnter() override;
