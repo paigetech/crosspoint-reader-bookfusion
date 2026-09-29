@@ -20,6 +20,7 @@
 #include <limits>
 
 #include "../../util/BookmarkFile.h"
+#include "BookFusionSyncActivity.h"
 #include "BookmarkEntry.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -961,7 +962,9 @@ unsigned long EpubReaderActivity::confirmLongPressThreshold() const {
 }
 
 bool EpubReaderActivity::launchKOReaderSync() {
-  if (!KOREADER_STORE.hasCredentials()) return false;
+  // BookFusion-downloaded books sync with BookFusion; everything else with KOReader.
+  const uint32_t bookFusionId = BookFusionSyncActivity::syncableBookId(epub->getPath());
+  if (bookFusionId == 0 && !KOREADER_STORE.hasCredentials()) return false;
 
   RenderLock renderLock;
 
@@ -973,6 +976,7 @@ bool EpubReaderActivity::launchKOReaderSync() {
   const int tocIdx = epub->getTocIndexForSpineIndex(currentSpineIndex);
   std::string localChapterName = (tocIdx >= 0) ? epub->getTocItem(tocIdx).title : "";
   const std::string savedEpubPath = epub->getPath();
+  const int spineCount = epub->getSpineItemsCount();
 
   if (!saveProgress(currentSpineIndex, currentPage, totalPages)) {
     LOG_ERR("KOSync", "Aborting sync because current progress could not be saved");
@@ -1002,6 +1006,12 @@ bool EpubReaderActivity::launchKOReaderSync() {
   }
   LOG_DBG("KOSync", "Epub released (heap after: %u)", (unsigned)ESP.getFreeHeap());
 
+  if (bookFusionId != 0) {
+    activityManager.replaceActivity(
+        std::make_unique<BookFusionSyncActivity>(renderer, mappedInput, savedEpubPath, bookFusionId, localPos,
+                                                 localKoPos.percentage, spineCount, std::move(localChapterName)));
+    return true;
+  }
   activityManager.replaceActivity(std::make_unique<KOReaderSyncActivity>(
       renderer, mappedInput, savedEpubPath, localPos, std::move(localKoPos), std::move(localChapterName)));
   return true;
