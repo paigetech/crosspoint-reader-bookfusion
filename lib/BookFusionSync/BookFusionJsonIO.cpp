@@ -12,6 +12,7 @@ namespace BookFusionJsonIO {
 bool save(const BookFusionTokenStore& store, const char* path) {
   JsonDocument doc;
   doc["token_obf"] = obfuscation::obfuscateToBase64(store.accessToken);
+  doc["auto_sync"] = store.autoSync;
 
   String json;
   serializeJson(doc, json);
@@ -25,6 +26,8 @@ bool load(BookFusionTokenStore& store, const char* json) {
     LOG_ERR("BFS", "JSON parse error loading BookFusion token: %s", error.c_str());
     return false;
   }
+
+  store.autoSync = doc["auto_sync"] | true;
 
   bool ok = false;
   store.accessToken = obfuscation::deobfuscateFromBase64(doc["token_obf"] | "", &ok);

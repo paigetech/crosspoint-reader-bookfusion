@@ -25,15 +25,37 @@ Almost everything is in fork-only files, to keep upstream rebases cheap:
 - `lib/BookFusionSync/`: API client, token store, per-book id sidecars
 - `src/activities/settings/BookFusion*`: Settings → BookFusion Sync (link/unlink), library browser and download
 - `src/activities/reader/BookFusionSyncActivity.*`: in-reader progress sync
+- `src/BookFusionAutoSync.*`, `lib/BookFusionSync/BookFusionAutoSyncPolicy.h`: auto sync on sleep / wake
 
 Hooks into upstream files are kept to a few lines each:
 
 - `src/activities/settings/SettingsActivity.{h,cpp}`: menu entry
-- `src/main.cpp`: load the token at boot
-- `src/activities/reader/EpubReaderActivity.cpp`: route *Sync progress* to BookFusion for BookFusion books
+- `src/main.cpp`: load the token at boot; auto sync calls in `enterDeepSleep()` and the wake routing in `setup()`
+- `src/activities/reader/EpubReaderActivity.{h,cpp}`: route *Sync progress* to BookFusion for BookFusion books,
+  report the position after each saved page, offer a newer position found on wake
 - `lib/I18n/translations/english.yaml`: `STR_BF_*` strings, appended at the end
 - `src/network/HttpDownloader.cpp`: report progress without a Content-Length (byte counter, cancel)
 - `src/network/OtaUpdater.cpp`: update check points at this fork
+
+## Auto sync
+
+Settings → BookFusion Sync → **Auto sync on sleep & wake** (on by default) syncs
+BookFusion books without opening the sync screen:
+
+- **On sleep**, after the sleep screen is drawn, the reader joins a saved WiFi
+  network in the background and sends your position, if it changed since the last
+  send. Sleeping takes a few seconds longer when it does. With no saved network in
+  range it gives up after about 12 seconds and tries again at the next sleep.
+- **Never overwrites a device that is ahead.** It reads BookFusion's position first
+  and skips the send when another device is more than 0.5% further along. The one
+  exception is when BookFusion still holds this reader's own last send (you paged
+  back on purpose).
+- **On wake** into a BookFusion book, it checks BookFusion before reopening the
+  book ("Checking BookFusion..."). If another device is further ahead, the book
+  opens and shows the usual sync comparison: *Apply remote* jumps there, Back keeps
+  your page. Wakes within 10 minutes of sleeping skip the check.
+- State: `/.crosspoint/bf_autosync.json`. Decisions: `BookFusionAutoSyncPolicy.h`
+  (host tests in `test/bookfusion_autosync/`).
 
 ## Things to know
 

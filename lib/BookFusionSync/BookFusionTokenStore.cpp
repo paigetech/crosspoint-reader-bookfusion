@@ -37,6 +37,11 @@ void BookFusionTokenStore::setToken(const std::string& token) {
   LOG_DBG("BFS", "BookFusion token set (%zu chars)", token.size());
 }
 
+void BookFusionTokenStore::setAutoSyncEnabled(const bool enabled) {
+  autoSync = enabled;
+  saveToFile();
+}
+
 void BookFusionTokenStore::clearToken() {
   accessToken.clear();
   saveToFile();

@@ -18,11 +18,12 @@ namespace fui = freeink::ui;
 
 namespace {
 constexpr int LINK_INDEX = 0;
-constexpr int UNLINK_INDEX = 1;
+constexpr int AUTO_SYNC_INDEX = 1;
 constexpr int BROWSE_INDEX = 2;
+constexpr int UNLINK_INDEX = 3;
 
-const StrId menuNames[BookFusionSettingsActivity::MENU_ITEMS] = {StrId::STR_BF_LINK_ACCOUNT, StrId::STR_BF_UNLINK,
-                                                                 StrId::STR_BF_BROWSE_LIBRARY};
+const StrId menuNames[BookFusionSettingsActivity::MENU_ITEMS] = {StrId::STR_BF_LINK_ACCOUNT, StrId::STR_BF_AUTO_SYNC,
+                                                                 StrId::STR_BF_BROWSE_LIBRARY, StrId::STR_BF_UNLINK};
 }  // namespace
 
 BookFusionSettingsActivity::BookFusionSettingsActivity(GfxRenderer& renderer, MappedInputManager& mappedInput)
@@ -55,6 +56,9 @@ void BookFusionSettingsActivity::activateIndex(const int index) {
   if (index == LINK_INDEX) {
     startActivityForResult(std::make_unique<BookFusionAuthActivity>(renderer, mappedInput),
                            [this](const ActivityResult&) { requestUpdate(); });
+  } else if (index == AUTO_SYNC_INDEX) {
+    BF_TOKEN_STORE.setAutoSyncEnabled(!BF_TOKEN_STORE.autoSyncEnabled());
+    requestUpdate();
   } else if (index == UNLINK_INDEX) {
     if (BF_TOKEN_STORE.hasToken()) {
       BF_TOKEN_STORE.clearToken();
@@ -76,6 +80,7 @@ void BookFusionSettingsActivity::buildScreen(UiScreen& screen) {
 
   const bool linked = BF_TOKEN_STORE.hasToken();
   rowValues_[LINK_INDEX] = linked ? tr(STR_BF_LINKED) : tr(STR_BF_NOT_LINKED);
+  rowValues_[AUTO_SYNC_INDEX] = BF_TOKEN_STORE.autoSyncEnabled() ? tr(STR_STATE_ON) : tr(STR_STATE_OFF);
   rowValues_[UNLINK_INDEX] = "";
   rowValues_[BROWSE_INDEX] = linked ? "" : tr(STR_BF_NOT_LINKED);
   for (int i = 0; i < MENU_ITEMS; i++) {
