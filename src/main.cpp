@@ -23,6 +23,7 @@
 
 #include <cstring>
 
+#include "BookFusionAutoSync.h"
 #include "BookFusionTokenStore.h"
 #include "CrossPointSettings.h"
 #include "CrossPointState.h"
@@ -285,6 +286,10 @@ void enterDeepSleep(bool fromTimeout = false) {
     // A stale Quick Resume frame must not replace the selected sleep screen during wake.
     Storage.remove(SLEEP_FRAME_FILE);
   }
+
+  // Push BookFusion progress with the sleep screen already up. Wake is a chip
+  // reset, so the TLS session's heap use needs no cleanup.
+  BookFusionAutoSync::syncBeforeSleep();
 
   // Tear down WiFi so the modem power domain isn't held alive across deep sleep.
   // Wake from deep sleep is effectively a chip reset, so no state needs to survive.
@@ -555,6 +560,12 @@ void setup() {
     // crashed (indicated by readerActivityLoadCount > 0)
     activityManager.goHome(HomeMenuItem::NONE, needsWakeRefresh);
   } else {
+    // Another device may be further ahead in this BookFusion book. The check
+    // used TLS, so reboot into the reader (openEpubPath still set) to start
+    // with a clean heap; the reader then offers the newer position.
+    if (BookFusionAutoSync::checkOnWake(APP_STATE.openEpubPath, renderer)) {
+      silentRestartToReader();
+    }
     // Clear app state to avoid getting into a boot loop if the epub doesn't load
     const auto path = APP_STATE.openEpubPath;
     APP_STATE.openEpubPath = "";

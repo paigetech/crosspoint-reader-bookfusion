@@ -20,6 +20,7 @@
 #include <limits>
 
 #include "../../util/BookmarkFile.h"
+#include "BookFusionAutoSync.h"
 #include "BookFusionSyncActivity.h"
 #include "BookmarkEntry.h"
 #include "CrossPointSettings.h"
@@ -206,6 +207,7 @@ bool EpubReaderActivity::loadBook() {
   });
 
   epub->setupCacheDir();
+  bookFusionId = BookFusionSyncActivity::syncableBookId(epub->getPath());
 
   HalFile f;
   if (Storage.openFileForRead("ERS", epub->getCachePath() + "/progress.bin", f)) {
@@ -377,6 +379,14 @@ void EpubReaderActivity::loop() {
   }
 
   rememberBookOnceRendered();
+
+  // A wake check found this book further ahead on another device: offer it
+  // once the first page is up (BookFusionAutoSync).
+  if (bookFusionId != 0 && !bookFusionPromptChecked && pageRendered.load(std::memory_order_acquire)) {
+    bookFusionPromptChecked = true;
+    BookFusionPosition remote;
+    if (BookFusionAutoSync::takePendingRemote(epub->getPath(), remote) && launchSync(&remote)) return;
+  }
 
   // Someone else turned the screen while this reader was stacked (the control
   // center's orientation tile). Reflow before the next render, or the page
@@ -961,10 +971,10 @@ unsigned long EpubReaderActivity::confirmLongPressThreshold() const {
   }
 }
 
-bool EpubReaderActivity::launchKOReaderSync() {
+bool EpubReaderActivity::launchSync(const BookFusionPosition* prefetchedRemote) {
   // BookFusion-downloaded books sync with BookFusion; everything else with KOReader.
-  const uint32_t bookFusionId = BookFusionSyncActivity::syncableBookId(epub->getPath());
-  if (bookFusionId == 0 && !KOREADER_STORE.hasCredentials()) return false;
+  const uint32_t syncBookId = BookFusionSyncActivity::syncableBookId(epub->getPath());
+  if (syncBookId == 0 && !KOREADER_STORE.hasCredentials()) return false;
 
   RenderLock renderLock;
 
@@ -1006,10 +1016,10 @@ bool EpubReaderActivity::launchKOReaderSync() {
   }
   LOG_DBG("KOSync", "Epub released (heap after: %u)", (unsigned)ESP.getFreeHeap());
 
-  if (bookFusionId != 0) {
-    activityManager.replaceActivity(
-        std::make_unique<BookFusionSyncActivity>(renderer, mappedInput, savedEpubPath, bookFusionId, localPos,
-                                                 localKoPos.percentage, spineCount, std::move(localChapterName)));
+  if (syncBookId != 0) {
+    activityManager.replaceActivity(std::make_unique<BookFusionSyncActivity>(
+        renderer, mappedInput, savedEpubPath, syncBookId, localPos, localKoPos.percentage, spineCount,
+        std::move(localChapterName), prefetchedRemote));
     return true;
   }
   activityManager.replaceActivity(std::make_unique<KOReaderSyncActivity>(
@@ -1467,6 +1477,7 @@ void EpubReaderActivity::renderBook() {
       lastSavedSpineIndex = currentSpineIndex;
       lastSavedPage = section->currentPage;
       lastSavedPageCount = section->estimatedTotalPages();
+      if (bookFusionId != 0) noteBookFusionPosition();
     }
   }
 
@@ -1554,6 +1565,23 @@ bool EpubReaderActivity::saveProgress(int spineIndex, int currentPage, int pageC
                  : section->getVisibleTextOffsetForPage(static_cast<uint16_t>(currentPage));
   }
   return EpubReaderUtils::saveProgress(*epub, spineIndex, currentPage, pageCount, offset);
+}
+
+// Same position formulas as the manual sync upload (ProgressMapper percentage,
+// BookFusionSyncActivity::performUpload page position).
+void EpubReaderActivity::noteBookFusionPosition() {
+  const int page = section->currentPage;
+  const int total = section->estimatedTotalPages();
+  const float intra = total > 1 ? static_cast<float>(page) / static_cast<float>(total - 1) : 0.0f;
+  const int spineCount = epub->getSpineItemsCount();
+  const float intraSpine = total > 0 ? static_cast<float>(page) / static_cast<float>(total) : 0.0f;
+
+  BookFusionPosition position;
+  position.percentage = std::clamp(epub->calculateProgress(currentSpineIndex, intra), 0.0f, 1.0f) * 100.0f;
+  position.chapterIndex = currentSpineIndex;
+  position.pagePositionInBook =
+      spineCount > 0 ? (static_cast<float>(currentSpineIndex) + intraSpine) / static_cast<float>(spineCount) : 0.0f;
+  BookFusionAutoSync::noteReading(epub->getPath(), bookFusionId, position);
 }
 
 void EpubReaderActivity::rememberCurrentContentOffset() {
