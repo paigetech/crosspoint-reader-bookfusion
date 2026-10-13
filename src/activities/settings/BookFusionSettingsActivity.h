@@ -6,8 +6,8 @@
 
 /**
  * Settings submenu for BookFusion Sync.
- * Link / unlink the BookFusion account (OAuth device-code flow) and open the
- * library browser.
+ * Link / unlink the BookFusion account (OAuth device-code flow), switch auto
+ * sync on sleep / wake, and open the library browser.
  */
 class BookFusionSettingsActivity final : public UiListActivity {
  public:
@@ -15,7 +15,7 @@ class BookFusionSettingsActivity final : public UiListActivity {
 
   void onExit() override;
 
-  static constexpr int MENU_ITEMS = 3;
+  static constexpr int MENU_ITEMS = 4;
 
  private:
   int listCount() const override;

@@ -29,6 +29,10 @@ class BookFusionTokenStore {
   bool hasToken() const { return !accessToken.empty(); }
   void clearToken();
 
+  // Push on sleep / check on wake (BookFusionAutoSync). On by default.
+  bool autoSyncEnabled() const { return autoSync; }
+  void setAutoSyncEnabled(bool enabled);
+
   friend bool BookFusionJsonIO::save(const BookFusionTokenStore&, const char*);
   friend bool BookFusionJsonIO::load(BookFusionTokenStore&, const char*);
 
@@ -37,6 +41,7 @@ class BookFusionTokenStore {
   BookFusionTokenStore() = default;
 
   std::string accessToken;
+  bool autoSync = true;
 };
 
 #define BF_TOKEN_STORE BookFusionTokenStore::getInstance()

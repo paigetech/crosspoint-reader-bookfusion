@@ -23,6 +23,10 @@
  *  2. Fetch remote position
  *  3. Show comparison + options (Apply remote / Upload local)
  *  4. Apply (save progress, reopen reader) or upload
+ *
+ * With a prefetched remote position (found by the wake check in
+ * BookFusionAutoSync) it starts at step 3 without WiFi, and only connects if
+ * the user then chooses to upload.
  */
 class BookFusionSyncActivity final : public Activity, private UiAppHost {
  public:
@@ -32,7 +36,8 @@ class BookFusionSyncActivity final : public Activity, private UiAppHost {
 
   explicit BookFusionSyncActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& epubPath,
                                   uint32_t bookId, const CrossPointPosition& localPosition, float localPercentage,
-                                  int spineCount, std::string localChapterName);
+                                  int spineCount, std::string localChapterName,
+                                  const BookFusionPosition* prefetchedRemote = nullptr);
 
   void onEnter() override;
   void onExit() override;
@@ -68,9 +73,11 @@ class BookFusionSyncActivity final : public Activity, private UiAppHost {
 
   int selectedOption = 0;  // 0 = Apply remote, 1 = Upload local
   bool wifiActivated = false;
+  bool remotePrefetched = false;
 
   void onWifiSelectionComplete(bool success);
   void performSync();
+  void showComparison();
   void performUpload();
   void ensureEpubLoaded();
   void saveProgressAndReturn(int spineIndex, int page);

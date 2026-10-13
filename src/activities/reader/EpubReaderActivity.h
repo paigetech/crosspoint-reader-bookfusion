@@ -18,6 +18,8 @@
 #include "ReaderToolbarUi.h"
 #include "components/OptionPopup.h"
 
+struct BookFusionPosition;
+
 class EpubReaderActivity final : public ReaderActivity {
   std::shared_ptr<Epub> epub;
   std::unique_ptr<Section> section = nullptr;
@@ -37,6 +39,10 @@ class EpubReaderActivity final : public ReaderActivity {
   float pendingSpineProgress = 0.0f;
   bool pendingScreenshot = false;
   bool pendingSyncSaveError = false;
+  // BookFusion id of this book (0 = not a linked BookFusion book), and whether
+  // the wake-check prompt (BookFusionAutoSync) has been looked for yet.
+  uint32_t bookFusionId = 0;
+  bool bookFusionPromptChecked = false;
   uint8_t pageLoadRetryCount = 0;
   static constexpr uint8_t MAX_PAGE_LOAD_RETRIES = 3;
   bool skipNextButtonCheck = false;
@@ -164,7 +170,9 @@ class EpubReaderActivity final : public ReaderActivity {
   void activateMoreRow(int row);
   void openFootnoteSelect(bool reopenMenuOnCancel);
   void openDictionaryWordSelect();
-  bool launchKOReaderSync();
+  bool launchKOReaderSync() { return launchSync(nullptr); }
+  bool launchSync(const BookFusionPosition* prefetchedRemote);
+  void noteBookFusionPosition();
   unsigned long confirmLongPressThreshold() const;
   void toggleAutoPageTurn(uint8_t selectedPageTurnOption);
   void loadCachedBookmarks();

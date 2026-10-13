@@ -9,6 +9,7 @@
 #include <cassert>
 #include <cstdio>
 
+#include "BookFusionAutoSync.h"
 #include "BookFusionBookIdStore.h"
 #include "BookFusionTokenStore.h"
 #include "EpubReaderUtils.h"
@@ -38,7 +39,8 @@ uint32_t BookFusionSyncActivity::syncableBookId(const std::string& epubPath) {
 BookFusionSyncActivity::BookFusionSyncActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                                const std::string& epubPath, const uint32_t bookId,
                                                const CrossPointPosition& localPosition, const float localPercentage,
-                                               const int spineCount, std::string localChapterName)
+                                               const int spineCount, std::string localChapterName,
+                                               const BookFusionPosition* prefetchedRemote)
     : Activity("BookFusionSync", renderer, mappedInput),
       UiAppHost(renderer),
       epubPath(epubPath),
@@ -46,7 +48,12 @@ BookFusionSyncActivity::BookFusionSyncActivity(GfxRenderer& renderer, MappedInpu
       localPosition(localPosition),
       localPercentage(localPercentage),
       spineCount(spineCount),
-      localChapterName(std::move(localChapterName)) {}
+      localChapterName(std::move(localChapterName)) {
+  if (prefetchedRemote) {
+    remoteBfPosition = *prefetchedRemote;
+    remotePrefetched = true;
+  }
+}
 
 void BookFusionSyncActivity::ensureEpubLoaded() {
   if (epub) return;
@@ -117,6 +124,10 @@ void BookFusionSyncActivity::performSync() {
     return;
   }
 
+  showComparison();
+}
+
+void BookFusionSyncActivity::showComparison() {
   // The Epub was released before sync to free RAM for the TLS handshake.
   ensureEpubLoaded();
   if (!epub) {
@@ -153,6 +164,31 @@ void BookFusionSyncActivity::performSync() {
 }
 
 void BookFusionSyncActivity::performUpload() {
+  if (!wifiActivated) {
+    // Prefetched comparison: no network yet. Connect, then come back here.
+    wifiActivated = true;
+    if (WiFi.status() != WL_CONNECTED) {
+      {
+        // Leave SHOWING_RESULT first: its screen reads the Epub released below.
+        RenderLock lock(*this);
+        state = UPLOADING;
+        statusMessage = tr(STR_UPLOAD_PROGRESS);
+      }
+      epub.reset();  // the WiFi screen and the TLS handshake need the heap
+      startActivityForResult(std::make_unique<WifiSelectionActivity>(renderer, mappedInput),
+                             [this](const ActivityResult& result) {
+                               if (result.isCancelled) {
+                                 returnToReader();
+                                 return;
+                               }
+                               WiFi.setSleep(false);
+                               performUpload();
+                             });
+      return;
+    }
+    WiFi.setSleep(false);
+  }
+
   {
     RenderLock lock(*this);
     state = UPLOADING;
@@ -183,6 +219,7 @@ void BookFusionSyncActivity::performUpload() {
       statusMessage = BookFusionSyncClient::errorString(result);
     } else {
       state = UPLOAD_COMPLETE;
+      BookFusionAutoSync::recordPushed(bookId, pos.percentage);
     }
   }
   requestUpdate(true);
@@ -195,6 +232,11 @@ void BookFusionSyncActivity::onEnter() {
   resetUi();
   app.on(ACTION_ROW, &BookFusionSyncActivity::onResultRow, this);
   app.setScreen(&BookFusionSyncActivity::resultScreen, this);
+
+  if (remotePrefetched) {
+    showComparison();
+    return;
+  }
 
   wifiActivated = true;
 
