@@ -19,6 +19,7 @@ enum class SettingAction {
   ClockSettings,
   KOReaderSync,
   BookFusionSync,
+  InstapaperSync,
   OPDSBrowser,
   Network,
   ClearCache,
