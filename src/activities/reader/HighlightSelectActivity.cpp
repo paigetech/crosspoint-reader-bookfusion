@@ -268,7 +268,7 @@ void HighlightSelectActivity::render(RenderLock&&) {
   }
 
   const int pageIdx = words[cursor].pageIdx;
-  Page& page = *pages[pageIdx].page;
+  const Page& page = *pages[pageIdx].page;
   auto* fcm = renderer.getFontCacheManager();
   auto scope = fcm->createPrewarmScope();
   page.render(renderer, fontId, marginLeft, marginTop);

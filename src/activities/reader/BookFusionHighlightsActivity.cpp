@@ -4,6 +4,9 @@
 #include <I18n.h>
 #include <Logging.h>
 
+#include <algorithm>
+#include <iterator>
+
 #include "BookFusionAutoSync.h"
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
@@ -34,9 +37,9 @@ void BookFusionHighlightsActivity::rebuildRows() {
   rowItems.clear();
   labels.reserve(rows.size());
   rowItems.reserve(rows.size());
-  for (const auto* hl : rows) {
-    labels.push_back("\xE2\x80\x9C" + hl->quote + "\xE2\x80\x9D");  // “quote”
-  }
+  std::transform(rows.begin(), rows.end(), std::back_inserter(labels), [](const BookFusionHighlight* hl) {
+    return "\xE2\x80\x9C" + hl->quote + "\xE2\x80\x9D";  // “quote”
+  });
   for (size_t i = 0; i < rows.size(); i++) {
     fui::ListItem item;
     item.label = labels[i].c_str();
