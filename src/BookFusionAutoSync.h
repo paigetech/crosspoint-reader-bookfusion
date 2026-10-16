@@ -11,7 +11,8 @@ class GfxRenderer;
  *
  *  - The reader reports its position after every saved page (noteReading).
  *  - Going to sleep pushes that position if it changed since the last push,
- *    unless another device is further ahead (syncBeforeSleep).
+ *    unless another device is further ahead, plus any highlight changes
+ *    (syncBeforeSleep).
  *  - Waking into a BookFusion book first checks whether another device is
  *    further ahead (checkOnWake); if so the reader offers to jump there
  *    (takePendingRemote).
@@ -23,6 +24,12 @@ namespace BookFusionAutoSync {
 
 // Cheap: keeps the latest position in RAM only.
 void noteReading(const std::string& epubPath, uint32_t bookId, const BookFusionPosition& position);
+
+// Lists a book whose highlights changed; the next sync (sleep or manual) sends them.
+void noteHighlightsPending(const std::string& epubPath, uint32_t bookId);
+
+// Sends all listed highlight changes. WiFi must already be up (manual sync).
+void pushPendingHighlights();
 
 // Records a push made elsewhere (manual sync) so sleep does not repeat it.
 void recordPushed(uint32_t bookId, float percentage);

@@ -1,6 +1,7 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 /**
  * BookFusion reading position (EPUB).
@@ -13,6 +14,24 @@ struct BookFusionPosition {
   float percentage = 0.0f;          // 0–100
   float pagePositionInBook = 0.0f;  // fractional book position
   int chapterIndex = 0;             // spine index, 0-based
+};
+
+/**
+ * A highlight to create on BookFusion (POST /api/user/highlights). Offsets are
+ * UTF-16 code units into the chapter's body text, as BookFusion's own readers
+ * count them; quote_prefix / quote_suffix disambiguate repeated quotes.
+ */
+struct BookFusionHighlightPayload {
+  uint32_t bookId = 0;
+  int chapterIndex = 0;  // spine index, 0-based
+  uint32_t startOffset = 0;
+  uint32_t endOffset = 0;
+  const char* quote = "";
+  const char* prefix = "";
+  const char* suffix = "";
+  const char* chapterTitle = "";
+  const char* addedAt = "";       // ISO 8601 UTC; omitted when empty
+  const char* color = "#FFFF33";  // BookFusion's yellow
 };
 
 /**
@@ -86,6 +105,11 @@ class BookFusionSyncClient {
   // --- Progress ---
   static Error getProgress(uint32_t bookId, BookFusionPosition& out);
   static Error setProgress(uint32_t bookId, const BookFusionPosition& pos);
+
+  // --- Highlights ---
+  static Error createHighlight(const BookFusionHighlightPayload& highlight, std::string& outRemoteId);
+  // NOT_FOUND counts as deleted.
+  static Error deleteHighlight(const std::string& remoteId);
 
   // --- Library Browse & Download ---
   static Error searchBooks(int page, BookFusionSearchResult& out, const char* list = nullptr,

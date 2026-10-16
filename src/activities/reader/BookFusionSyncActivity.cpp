@@ -99,6 +99,8 @@ void BookFusionSyncActivity::onWifiSelectionComplete(const bool success) {
   }
   requestUpdateAndWait();
 
+  // Highlight changes ride along with every manual sync.
+  BookFusionAutoSync::pushPendingHighlights();
   performSync();
 }
 

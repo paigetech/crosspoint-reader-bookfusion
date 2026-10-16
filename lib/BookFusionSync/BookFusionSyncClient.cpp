@@ -234,6 +234,77 @@ BookFusionSyncClient::Error BookFusionSyncClient::setProgress(uint32_t bookId, c
   return SERVER_ERROR;
 }
 
+// --- Highlights ---
+
+BookFusionSyncClient::Error BookFusionSyncClient::createHighlight(const BookFusionHighlightPayload& highlight,
+                                                                  std::string& outRemoteId) {
+  if (!BF_TOKEN_STORE.hasToken()) return NO_TOKEN;
+
+  char url[96];
+  snprintf(url, sizeof(url), "%s/api/user/highlights", BASE_URL);
+
+  freeink::SecureHttpClient tmp;
+  freeink::SecureHttpClient& http = resolveClient(tmp);
+  if (!http.begin(url)) {
+    LOG_ERR("BFS", "createHighlight: begin failed");
+    return NETWORK_ERROR;
+  }
+  addAuthHeaders(http);
+  http.addHeader("Content-Type", "application/json");
+
+  JsonDocument body;
+  body["book_id"] = highlight.bookId;
+  body["chapter_index"] = highlight.chapterIndex;
+  body["start_offset"] = highlight.startOffset;
+  body["end_offset"] = highlight.endOffset;
+  body["quote_text"] = highlight.quote;
+  if (highlight.prefix[0]) body["quote_prefix"] = highlight.prefix;
+  if (highlight.suffix[0]) body["quote_suffix"] = highlight.suffix;
+  if (highlight.chapterTitle[0]) body["chapter_title"] = highlight.chapterTitle;
+  if (highlight.addedAt[0]) body["added_at"] = highlight.addedAt;
+  body["color"] = highlight.color;
+  std::string bodyStr;
+  serializeJson(body, bodyStr);
+
+  const int httpCode = http.POST(bodyStr);
+  LOG_DBG("BFS", "createHighlight response: %d", httpCode);
+  if (httpCode < 0) return NETWORK_ERROR;
+  if (httpCode == 401) return AUTH_FAILED;
+  if (httpCode < 200 || httpCode >= 300) return SERVER_ERROR;
+
+  JsonDocument doc;
+  if (deserializeJson(doc, http.getString()) != DeserializationError::Ok) return JSON_ERROR;
+  const JsonVariantConst id = doc["id"];
+  if (id.is<const char*>()) {
+    outRemoteId = id.as<const char*>();
+  } else if (id.is<uint64_t>()) {
+    outRemoteId = std::to_string(id.as<uint64_t>());
+  } else {
+    return JSON_ERROR;
+  }
+  return OK;
+}
+
+BookFusionSyncClient::Error BookFusionSyncClient::deleteHighlight(const std::string& remoteId) {
+  if (!BF_TOKEN_STORE.hasToken()) return NO_TOKEN;
+
+  std::string url = std::string(BASE_URL) + "/api/user/highlights/" + remoteId;
+  freeink::SecureHttpClient tmp;
+  freeink::SecureHttpClient& http = resolveClient(tmp);
+  if (!http.begin(url)) {
+    LOG_ERR("BFS", "deleteHighlight: begin failed");
+    return NETWORK_ERROR;
+  }
+  addAuthHeaders(http);
+
+  const int httpCode = http.sendRequest("DELETE", std::string());
+  LOG_DBG("BFS", "deleteHighlight %s response: %d", remoteId.c_str(), httpCode);
+  if (httpCode < 0) return NETWORK_ERROR;
+  if (httpCode == 401) return AUTH_FAILED;
+  if ((httpCode >= 200 && httpCode < 300) || httpCode == 404) return OK;
+  return SERVER_ERROR;
+}
+
 // --- Library Browse & Download ---
 
 BookFusionSyncClient::Error BookFusionSyncClient::searchBooks(int page, BookFusionSearchResult& out, const char* list,
