@@ -21,6 +21,9 @@
 
 #include "../../util/BookmarkFile.h"
 #include "BookFusionAutoSync.h"
+#include "BookFusionHighlightAnchor.h"
+#include "BookFusionHighlightResolver.h"
+#include "BookFusionHighlightsActivity.h"
 #include "BookFusionSyncActivity.h"
 #include "BookmarkEntry.h"
 #include "CrossPointSettings.h"
@@ -31,6 +34,7 @@
 #include "EpubReaderFootnoteSelectActivity.h"
 #include "EpubReaderPercentSelectionActivity.h"
 #include "EpubReaderUtils.h"
+#include "HighlightSelectActivity.h"
 #include "KOReaderCredentialStore.h"
 #include "KOReaderSyncActivity.h"
 #include "MappedInputManager.h"
@@ -208,6 +212,7 @@ bool EpubReaderActivity::loadBook() {
 
   epub->setupCacheDir();
   bookFusionId = BookFusionSyncActivity::syncableBookId(epub->getPath());
+  if (bookFusionId != 0) bookFusionHighlights.load(epub->getPath());
 
   HalFile f;
   if (Storage.openFileForRead("ERS", epub->getCachePath() + "/progress.bin", f)) {
@@ -282,9 +287,9 @@ void EpubReaderActivity::openReaderMenu() {
   const int bookProgressPercent = bookPercentFor(position);
 
   startActivityForResult(
-      std::make_unique<EpubReaderMenuActivity>(renderer, mappedInput, epub->getTitle(), position.displayPage(),
-                                               position.totalPages, bookProgressPercent, SETTINGS.orientation,
-                                               !currentPageFootnotes.empty(), !cachedBookmarks.empty()),
+      std::make_unique<EpubReaderMenuActivity>(
+          renderer, mappedInput, epub->getTitle(), position.displayPage(), position.totalPages, bookProgressPercent,
+          SETTINGS.orientation, !currentPageFootnotes.empty(), !cachedBookmarks.empty(), bookFusionId != 0),
       [this](const ActivityResult& result) {
         const auto& menu = std::get<MenuResult>(result.data);
 
@@ -334,6 +339,119 @@ void EpubReaderActivity::openDictionaryWordSelect() {
   startActivityForResult(std::make_unique<DictionaryWordSelectActivity>(renderer, mappedInput, std::move(page),
                                                                         orientedMarginLeft, orientedMarginTop),
                          [this](const ActivityResult&) { requestUpdate(); });
+}
+
+void EpubReaderActivity::openHighlightSelect() {
+  if (!section || bookFusionId == 0) return;
+  int orientedMarginTop, orientedMarginRight, orientedMarginBottom, orientedMarginLeft;
+  renderer.getOrientedViewableTRBL(&orientedMarginTop, &orientedMarginRight, &orientedMarginBottom,
+                                   &orientedMarginLeft);
+  orientedMarginTop += SETTINGS.screenMargin;
+  orientedMarginLeft += SETTINGS.screenMargin;
+
+  auto selection = std::make_shared<HighlightSelectActivity::Selection>();
+  startActivityForResult(
+      std::make_unique<HighlightSelectActivity>(renderer, mappedInput, *section, section->currentPage,
+                                                orientedMarginLeft, orientedMarginTop, selection),
+      [this, selection](const ActivityResult&) {
+        if (selection->saved) saveHighlight(*selection);
+        requestUpdate();
+      });
+}
+
+// Anchors the selected words in the chapter source (BookFusion offsets) and
+// stores the highlight; it reaches BookFusion with the next sync.
+void EpubReaderActivity::saveHighlight(const HighlightSelectActivity::Selection& selection) {
+  const auto& words = selection.words;
+  if (!epub || words.empty()) return;
+  {
+    RenderLock lock;
+    GUI.drawPopup(renderer, tr(STR_HL_SAVING));
+  }
+  BookFusionHighlightAnchor::Anchor anchor;
+  BookFusionHighlightAnchor::PageContext page;
+  page.pageStartCp = selection.pageStartCp;
+  page.wordsBefore = selection.wordsBefore;
+  if (!BookFusionHighlightResolver::resolve(*epub, currentSpineIndex, selection.approxStartCp, words, anchor, &page)) {
+    LOG_ERR("BFHL", "Could not anchor a %u-word highlight in spine %d", static_cast<unsigned>(words.size()),
+            currentSpineIndex);
+    RenderLock lock;
+    GUI.drawPopup(renderer, tr(STR_HL_NOT_PLACED));
+    delay(1500);
+    return;
+  }
+
+  BookFusionHighlight hl;
+  hl.chapterIndex = static_cast<uint16_t>(currentSpineIndex);
+  hl.cpStart = anchor.cpStart;
+  hl.cpEnd = anchor.cpEnd;
+  hl.u16Start = anchor.u16Start;
+  hl.u16End = anchor.u16End;
+  hl.quote = std::move(anchor.quote);
+  hl.prefix = std::move(anchor.prefix);
+  hl.suffix = std::move(anchor.suffix);
+  hl.chapterTitle = currentChapterTitle();
+  const time_t now = time(nullptr);
+  if (now > 1700000000) {  // clock set (NTP); otherwise BookFusion stamps it
+    char iso[24];
+    strftime(iso, sizeof(iso), "%Y-%m-%dT%H:%M:%SZ", gmtime(&now));
+    hl.addedAt = iso;
+  }
+  {
+    RenderLock lock;  // the render task draws from this store
+    bookFusionHighlights.add(std::move(hl));
+    if (!bookFusionHighlights.save()) LOG_ERR("BFHL", "Failed to save highlight");
+  }
+  BookFusionAutoSync::noteHighlightsPending(epub->getPath(), bookFusionId);
+}
+
+// Underlines this page's part of each highlight in the chapter.
+void EpubReaderActivity::drawBookFusionHighlights(const Page& page, const int fontId, const int marginLeft,
+                                                  const int marginTop) {
+  if (bookFusionId == 0 || !section) return;
+  const auto highlights = bookFusionHighlights.visibleInChapter(static_cast<uint16_t>(currentSpineIndex));
+  if (highlights.empty()) return;
+
+  struct Box {
+    int x;
+    int y;
+    int width;
+  };
+  std::vector<std::string> texts;
+  std::vector<Box> boxes;
+  for (const auto& element : page.elements) {
+    if (element->getTag() != TAG_PageLine) continue;
+    const auto* line = static_cast<const PageLine*>(element.get());
+    const auto* block = line->getBlock();
+    if (!block || !block->valid()) continue;
+    for (uint16_t i = 0; i < block->wordCount(); i++) {
+      const char* text = block->wordText(i);
+      texts.emplace_back(text);
+      boxes.push_back({line->xPos + block->wordXpos(i) + marginLeft, line->yPos + marginTop,
+                       renderer.getTextAdvanceX(fontId, text, block->wordStyle(i))});
+    }
+  }
+  if (texts.empty()) return;
+
+  const uint32_t pageStart = page.visibleTextOffset;
+  const auto next = section->getVisibleTextOffsetForPage(static_cast<uint16_t>(section->currentPage + 1));
+  const uint32_t pageEnd = next.value_or(UINT32_MAX);
+  const int lineHeight = renderer.getLineHeight(fontId);
+  constexpr int THICKNESS = 2;
+
+  const BookFusionHighlightAnchor::PageMatcher matcher(texts);
+  for (const auto* hl : highlights) {
+    int first = 0;
+    int last = 0;
+    if (!matcher.covered(pageStart, pageEnd, hl->cpStart, hl->cpEnd, hl->quote, first, last)) continue;
+    for (int i = first; i <= last; i++) {
+      const Box& b = boxes[i];
+      int right = b.x + b.width;
+      if (i < last && boxes[i + 1].y == b.y) right = boxes[i + 1].x;  // bridge the space on the same line
+      const int y = b.y + lineHeight - THICKNESS;
+      renderer.drawLine(b.x, y, right - 1, y, THICKNESS, true);
+    }
+  }
 }
 
 void EpubReaderActivity::openFootnoteSelect(const bool reopenMenuOnCancel) {
@@ -896,6 +1014,23 @@ void EpubReaderActivity::onReaderMenuConfirm(EpubReaderMenuActivity::MenuAction 
     }
     case EpubReaderMenuActivity::MenuAction::DICTIONARY: {
       openDictionaryWordSelect();
+      break;
+    }
+    case EpubReaderMenuActivity::MenuAction::HIGHLIGHT: {
+      openHighlightSelect();
+      break;
+    }
+    case EpubReaderMenuActivity::MenuAction::HIGHLIGHTS: {
+      if (bookFusionId == 0) break;
+      startActivityForResult(
+          std::make_unique<BookFusionHighlightsActivity>(renderer, mappedInput, epub->getPath(), bookFusionId),
+          [this, progressChangeResultHandler](const ActivityResult& result) {
+            {
+              RenderLock lock;                             // the render task draws from this store
+              bookFusionHighlights.load(epub->getPath());  // deletions
+            }
+            progressChangeResultHandler(result);
+          });
       break;
     }
     case EpubReaderMenuActivity::MenuAction::DISPLAY_QR: {
@@ -1649,6 +1784,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   }
 
   page->render(renderer, fontId, orientedMarginLeft, orientedMarginTop);
+  drawBookFusionHighlights(*page, fontId, orientedMarginLeft, orientedMarginTop);
   renderStatusBar();
   const auto tBwRender = millis();
 
@@ -2467,7 +2603,8 @@ void EpubReaderActivity::applyReaderTextSettings() {
 // two entries that have their own tool (chapters -> Contents, text -> Text).
 void EpubReaderActivity::buildMoreActions() {
   using MA = EpubReaderMenuActivity::MenuAction;
-  EpubReaderMenuActivity::buildMenuItems(moreItems, !currentPageFootnotes.empty(), !cachedBookmarks.empty());
+  EpubReaderMenuActivity::buildMenuItems(moreItems, !currentPageFootnotes.empty(), !cachedBookmarks.empty(),
+                                         bookFusionId != 0);
   moreItems.erase(std::remove_if(moreItems.begin(), moreItems.end(),
                                  [](const auto& item) {
                                    return item.action == MA::SELECT_CHAPTER || item.action == MA::TEXT_SETTINGS;

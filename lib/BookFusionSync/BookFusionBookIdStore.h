@@ -18,6 +18,9 @@ class BookFusionBookIdStore {
   // Save book_id for an epub path. Returns false on I/O error or if id == 0.
   static bool saveBookId(const char* epubPath, uint32_t bookId);
 
+  // /.crosspoint/bookfusion_hl_<md5>.json: the book's highlights (BookFusionHighlightStore).
+  static void buildHighlightsPath(const char* epubPath, char* outPath, size_t maxLen);
+
  private:
   // Derives /.crosspoint/bookfusion_<32hexchars>.json from the epub path.
   static void buildSidecarPath(const char* epubPath, char* outPath, size_t maxLen);

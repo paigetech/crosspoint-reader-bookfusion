@@ -14,14 +14,15 @@ namespace fui = freeink::ui;
 EpubReaderMenuActivity::EpubReaderMenuActivity(GfxRenderer& renderer, MappedInputManager& mappedInput,
                                                const std::string& title, const int currentPage, const int totalPages,
                                                const int bookProgressPercent, const uint8_t currentOrientation,
-                                               const bool hasFootnotes, const bool hasBookmarks)
+                                               const bool hasFootnotes, const bool hasBookmarks,
+                                               const bool bookFusionBook)
     : UiListActivity("EpubReaderMenu", renderer, mappedInput),
       title(title),
       pendingOrientation(currentOrientation),
       currentPage(currentPage),
       totalPages(totalPages),
       bookProgressPercent(bookProgressPercent) {
-  buildMenuItems(menuItems, hasFootnotes, hasBookmarks);
+  buildMenuItems(menuItems, hasFootnotes, hasBookmarks, bookFusionBook);
   buildMenuRowItems();
 }
 
@@ -37,7 +38,8 @@ void EpubReaderMenuActivity::buildMenuRowItems() {
   }
 }
 
-void EpubReaderMenuActivity::buildMenuItems(std::vector<MenuItem>& items, bool hasFootnotes, bool hasBookmarks) {
+void EpubReaderMenuActivity::buildMenuItems(std::vector<MenuItem>& items, bool hasFootnotes, bool hasBookmarks,
+                                            const bool bookFusionBook) {
   items.clear();
   items.reserve(MAX_MENU_ITEMS);
   items.push_back({MenuAction::SELECT_CHAPTER, StrId::STR_SELECT_CHAPTER});
@@ -53,6 +55,10 @@ void EpubReaderMenuActivity::buildMenuItems(std::vector<MenuItem>& items, bool h
     items.push_back({MenuAction::FRONTLIGHT, StrId::STR_FRONTLIGHT});
   }
   items.push_back({MenuAction::DICTIONARY, StrId::STR_LOOKUP});
+  if (bookFusionBook) {
+    items.push_back({MenuAction::HIGHLIGHT, StrId::STR_HL_HIGHLIGHT});
+    items.push_back({MenuAction::HIGHLIGHTS, StrId::STR_HL_HIGHLIGHTS});
+  }
   items.push_back({MenuAction::ROTATE_SCREEN, StrId::STR_ORIENTATION});
   items.push_back({MenuAction::AUTO_PAGE_TURN, StrId::STR_AUTO_TURN_PAGES_PER_MIN});
   items.push_back({MenuAction::GO_TO_PERCENT, StrId::STR_GO_TO_PERCENT});

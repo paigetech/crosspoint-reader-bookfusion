@@ -10,8 +10,11 @@
 #include <algorithm>
 #include <cstdio>
 #include <ctime>
+#include <utility>
+#include <vector>
 
 #include "BookFusionAutoSyncPolicy.h"
+#include "BookFusionHighlightSync.h"
 #include "BookFusionTokenStore.h"
 #include "WifiCredentialStore.h"
 #include "activities/RenderLock.h"
@@ -44,6 +47,8 @@ struct State {
   float pushedPct = 0.0f;     // position of the last successful push
   bool hasPending = false;    // newer position found on wake, not yet offered
   BookFusionPosition pending;
+  // Books with highlight changes not yet on BookFusion: (epub path, book id).
+  std::vector<std::pair<std::string, uint32_t>> highlightBooks;
 };
 
 State loadState() {
@@ -61,6 +66,9 @@ State loadState() {
   st.sleptAt = doc["slept_at"] | static_cast<int64_t>(0);
   st.pushedBookId = doc["pushed_book_id"] | static_cast<uint32_t>(0);
   st.pushedPct = doc["pushed_pct"] | 0.0f;
+  for (JsonObjectConst book : doc["hl_books"].as<JsonArrayConst>()) {
+    st.highlightBooks.emplace_back(book["path"] | "", book["book_id"] | static_cast<uint32_t>(0));
+  }
   const JsonVariantConst pending = doc["pending"];
   if (pending.is<JsonObjectConst>()) {
     st.hasPending = true;
@@ -79,6 +87,14 @@ void saveState(const State& st) {
   doc["slept_at"] = st.sleptAt;
   doc["pushed_book_id"] = st.pushedBookId;
   doc["pushed_pct"] = st.pushedPct;
+  if (!st.highlightBooks.empty()) {
+    JsonArray books = doc["hl_books"].to<JsonArray>();
+    for (const auto& [path, bookId] : st.highlightBooks) {
+      JsonObject book = books.add<JsonObject>();
+      book["path"] = path;
+      book["book_id"] = bookId;
+    }
+  }
   if (st.hasPending) {
     JsonObject pending = doc["pending"].to<JsonObject>();
     pending["pct"] = st.pending.percentage;
@@ -174,7 +190,39 @@ bool connectSavedWifi() {
   return false;
 }
 
+// Sends every listed book's highlight changes; WiFi must be up. Books stay
+// listed until all their changes are through.
+void pushHighlights(State& st) {
+  for (auto it = st.highlightBooks.begin(); it != st.highlightBooks.end();) {
+    const auto result = BookFusionHighlightSync::pushPending(it->first, it->second);
+    if (result.failed == 0) {
+      it = st.highlightBooks.erase(it);
+      continue;
+    }
+    if (result.error == BookFusionSyncClient::AUTH_FAILED || result.error == BookFusionSyncClient::NETWORK_ERROR) {
+      return;  // later books would fail the same way
+    }
+    ++it;
+  }
+}
+
 }  // namespace
+
+void noteHighlightsPending(const std::string& epubPath, const uint32_t bookId) {
+  State st = loadState();
+  for (const auto& book : st.highlightBooks) {
+    if (book.first == epubPath) return;
+  }
+  st.highlightBooks.emplace_back(epubPath, bookId);
+  saveState(st);
+}
+
+void pushPendingHighlights() {
+  State st = loadState();
+  if (st.highlightBooks.empty()) return;
+  pushHighlights(st);
+  saveState(st);
+}
 
 void noteReading(const std::string& epubPath, const uint32_t bookId, const BookFusionPosition& position) {
   noted.valid = true;
@@ -191,18 +239,21 @@ void recordPushed(const uint32_t bookId, const float percentage) {
 }
 
 void syncBeforeSleep() {
-  if (!noted.valid || !enabled()) return;
+  if (!enabled()) return;
 
   State st = loadState();
-  st.path = noted.path;
-  st.bookId = noted.bookId;
-  st.localPct = noted.position.percentage;
-  st.sleptAt = static_cast<int64_t>(time(nullptr));
-
-  const bool pushedThisBook = st.pushedBookId == noted.bookId;
-  if (!BookFusionAutoSyncPolicy::needsPush(pushedThisBook, st.pushedPct, st.localPct)) {
-    LOG_DBG("BFAuto", "Position unchanged since last push");
-    saveState(st);
+  bool progressDue = false;
+  const bool pushedThisBook = noted.valid && st.pushedBookId == noted.bookId;
+  if (noted.valid) {
+    st.path = noted.path;
+    st.bookId = noted.bookId;
+    st.localPct = noted.position.percentage;
+    st.sleptAt = static_cast<int64_t>(time(nullptr));
+    progressDue = BookFusionAutoSyncPolicy::needsPush(pushedThisBook, st.pushedPct, st.localPct);
+  }
+  const bool highlightsDue = !st.highlightBooks.empty();
+  if (!progressDue && !highlightsDue) {
+    if (noted.valid) saveState(st);
     return;
   }
 
@@ -214,30 +265,28 @@ void syncBeforeSleep() {
   }
   WiFi.setSleep(false);  // modem sleep stalls short TLS exchanges
 
-  BookFusionPosition remote;
-  const auto fetched = BookFusionSyncClient::getProgress(noted.bookId, remote);
-  if (fetched != BookFusionSyncClient::OK && fetched != BookFusionSyncClient::NOT_FOUND) {
-    LOG_ERR("BFAuto", "Fetch before push failed: %s", BookFusionSyncClient::errorString(fetched));
-    saveState(st);
-    return;
+  if (progressDue) {
+    BookFusionPosition remote;
+    const auto fetched = BookFusionSyncClient::getProgress(noted.bookId, remote);
+    const bool remoteKnown = fetched == BookFusionSyncClient::OK;
+    if (!remoteKnown && fetched != BookFusionSyncClient::NOT_FOUND) {
+      LOG_ERR("BFAuto", "Fetch before push failed: %s", BookFusionSyncClient::errorString(fetched));
+    } else if (!BookFusionAutoSyncPolicy::shouldPush(remoteKnown, remote.percentage, st.localPct, pushedThisBook,
+                                                     st.pushedPct)) {
+      LOG_DBG("BFAuto", "Another device is ahead (%.1f%% vs %.1f%%), not pushing", remote.percentage, st.localPct);
+    } else {
+      const auto pushed = BookFusionSyncClient::setProgress(noted.bookId, noted.position);
+      if (pushed == BookFusionSyncClient::OK) {
+        st.pushedBookId = noted.bookId;
+        st.pushedPct = st.localPct;
+        LOG_DBG("BFAuto", "Pushed %.1f%% in %lums", st.localPct, millis() - start);
+      } else {
+        LOG_ERR("BFAuto", "Push failed: %s", BookFusionSyncClient::errorString(pushed));
+      }
+    }
   }
 
-  const bool remoteKnown = fetched == BookFusionSyncClient::OK;
-  if (!BookFusionAutoSyncPolicy::shouldPush(remoteKnown, remote.percentage, st.localPct, pushedThisBook,
-                                            st.pushedPct)) {
-    LOG_DBG("BFAuto", "Another device is ahead (%.1f%% vs %.1f%%), not pushing", remote.percentage, st.localPct);
-    saveState(st);
-    return;
-  }
-
-  const auto pushed = BookFusionSyncClient::setProgress(noted.bookId, noted.position);
-  if (pushed == BookFusionSyncClient::OK) {
-    st.pushedBookId = noted.bookId;
-    st.pushedPct = st.localPct;
-    LOG_DBG("BFAuto", "Pushed %.1f%% in %lums", st.localPct, millis() - start);
-  } else {
-    LOG_ERR("BFAuto", "Push failed: %s", BookFusionSyncClient::errorString(pushed));
-  }
+  if (highlightsDue) pushHighlights(st);
   saveState(st);
 }
 

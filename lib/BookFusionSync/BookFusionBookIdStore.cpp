@@ -18,6 +18,14 @@ void BookFusionBookIdStore::buildSidecarPath(const char* epubPath, char* outPath
   snprintf(outPath, maxLen, "/.crosspoint/bookfusion_%s.json", md5.toString().c_str());
 }
 
+void BookFusionBookIdStore::buildHighlightsPath(const char* epubPath, char* outPath, size_t maxLen) {
+  MD5Builder md5;
+  md5.begin();
+  md5.add(epubPath);
+  md5.calculate();
+  snprintf(outPath, maxLen, "/.crosspoint/bookfusion_hl_%s.json", md5.toString().c_str());
+}
+
 uint32_t BookFusionBookIdStore::loadBookId(const char* epubPath) {
   char sidecarPath[64];
   buildSidecarPath(epubPath, sidecarPath, sizeof(sidecarPath));

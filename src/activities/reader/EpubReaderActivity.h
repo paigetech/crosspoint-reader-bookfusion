@@ -10,9 +10,11 @@
 #include <optional>
 #include <vector>
 
+#include "BookFusionHighlightStore.h"
 #include "BookmarkEntry.h"
 #include "ChapterPosition.h"
 #include "EpubReaderMenuActivity.h"
+#include "HighlightSelectActivity.h"
 #include "ProgressMapper.h"
 #include "ReaderActivity.h"
 #include "ReaderToolbarUi.h"
@@ -43,6 +45,8 @@ class EpubReaderActivity final : public ReaderActivity {
   // the wake-check prompt (BookFusionAutoSync) has been looked for yet.
   uint32_t bookFusionId = 0;
   bool bookFusionPromptChecked = false;
+  // This book's BookFusion highlights (fork feature), drawn as underlines.
+  BookFusionHighlightStore bookFusionHighlights;
   uint8_t pageLoadRetryCount = 0;
   static constexpr uint8_t MAX_PAGE_LOAD_RETRIES = 3;
   bool skipNextButtonCheck = false;
@@ -173,6 +177,9 @@ class EpubReaderActivity final : public ReaderActivity {
   bool launchKOReaderSync() { return launchSync(nullptr); }
   bool launchSync(const BookFusionPosition* prefetchedRemote);
   void noteBookFusionPosition();
+  void openHighlightSelect();
+  void saveHighlight(const HighlightSelectActivity::Selection& selection);
+  void drawBookFusionHighlights(const Page& page, int fontId, int marginLeft, int marginTop);
   unsigned long confirmLongPressThreshold() const;
   void toggleAutoPageTurn(uint8_t selectedPageTurnOption);
   void loadCachedBookmarks();

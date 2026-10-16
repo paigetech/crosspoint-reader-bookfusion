@@ -26,13 +26,16 @@ Almost everything is in fork-only files, to keep upstream rebases cheap:
 - `src/activities/settings/BookFusion*`: Settings → BookFusion Sync (link/unlink), library browser and download
 - `src/activities/reader/BookFusionSyncActivity.*`: in-reader progress sync
 - `src/BookFusionAutoSync.*`, `lib/BookFusionSync/BookFusionAutoSyncPolicy.h`: auto sync on sleep / wake
+- `lib/BookFusionSync/BookFusionHighlight*`, `src/activities/reader/HighlightSelectActivity.*`,
+  `src/activities/reader/BookFusionHighlightsActivity.*`: highlights
 
 Hooks into upstream files are kept to a few lines each:
 
 - `src/activities/settings/SettingsActivity.{h,cpp}`: menu entry
 - `src/main.cpp`: load the token at boot; auto sync calls in `enterDeepSleep()` and the wake routing in `setup()`
 - `src/activities/reader/EpubReaderActivity.{h,cpp}`: route *Sync progress* to BookFusion for BookFusion books,
-  report the position after each saved page, offer a newer position found on wake
+  report the position after each saved page, offer a newer position found on wake, draw and save highlights
+- `src/activities/reader/EpubReaderMenuActivity.{h,cpp}`: *Highlight* / *Highlights* menu items (BookFusion books)
 - `lib/I18n/translations/english.yaml`: `STR_BF_*` strings, appended at the end
 - `src/network/HttpDownloader.cpp`: report progress without a Content-Length (byte counter, cancel)
 - `src/network/OtaUpdater.cpp`: update check points at this fork
@@ -56,6 +59,32 @@ BookFusion books without opening the sync screen:
   your page. Wakes within 10 minutes of sleeping skip the check.
 - State: `/.crosspoint/bf_autosync.json`. Decisions: `BookFusionAutoSyncPolicy.h`
   (host tests in `test/bookfusion_autosync/`).
+
+## Highlights
+
+BookFusion books get two extra reader-menu items:
+
+- **Highlight** opens a word cursor on the current page. Left/Right move a word
+  (hold to repeat), Up/Down a line. Confirm marks the start, Confirm again saves.
+  Back clears the start mark, then leaves. The selection can continue onto the next
+  two pages of the same chapter. On touch screens, tap the first word, then the last.
+  The selection UI follows upstream PR
+  [#1742](https://github.com/crosspoint-reader/crosspoint-reader/pull/1742).
+- **Highlights** lists the book's highlights. Confirm jumps to one; hold Confirm
+  (or long-press) to delete it.
+
+Saved highlights are underlined on the page. They are sent to BookFusion (yellow)
+on the next sync: when the reader sleeps with auto sync on, or from *Sync progress*.
+Deletes are sent the same way. Highlights made in BookFusion's other apps are not
+shown on the reader yet.
+
+How it works: BookFusion places a highlight by chapter plus UTF-16 offsets into the
+chapter's body text, with the quote and some text on each side. On save, the reader
+re-reads the chapter's XHTML around the page (`BookFusionHighlightResolver`), rebuilds
+the text the way a browser counts it, and finds the selected words in it
+(`BookFusionHighlightAnchor`). Matching ignores line-break hyphens, whitespace,
+accents and case, so the page layout doesn't matter. Pending changes live in
+`/.crosspoint/bookfusion_hl_<md5>.json`; host tests are in `test/bookfusion_highlights/`.
 
 ## Things to know
 
